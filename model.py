@@ -1,93 +1,73 @@
+# Import necessary libraries
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 import tkinter as tk
-from tkinter import messagebox, ttk
-import sqlite3
+from tkinter import filedialog, messagebox
+from tkinter import ttk
 
-# Connecting to the  database
-db_connection = sqlite3.connect('school_database.db')
-cursor = db_connection.cursor()
+# Load the Dataset
+df = pd.read_excel("drop out data.xlsx")
 
-# Creating the students table 
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS students (
-    student_id INTEGER PRIMARY KEY,
-    school_satisfaction FLOAT,
-    attendance_rate FLOAT,
-    failed_courses INTEGER,
-    commute_time INTEGER,
-    disciplinary_incidents INTEGER,
-    homework_completion FLOAT,
-    family_income TEXT,
-    promotion_status TEXT
-);
-''')
-db_connection.commit()
+# Handle Missing Values
+print(df.isnull().sum())
 
-# Function to retrieve and display data
-def view_data():
-    cursor.execute('SELECT * FROM students')
-    rows = cursor.fetchall()
-    result_window = tk.Toplevel(root)
-    result_window.title("Database Records")
-    result_window.geometry("800x400")
-    
-    tree = ttk.Treeview(result_window, columns=("ID", "Satisfaction", "Attendance", "Failed Courses", 
-                                                "Commute Time", "Disciplinary", "Homework", "Income", "Status"), show="headings")
-    tree.heading("ID", text="Student ID")
-    tree.heading("Satisfaction", text="School Satisfaction")
-    tree.heading("Attendance", text="Attendance Rate")
-    tree.heading("Failed Courses", text="Failed Courses")
-    tree.heading("Commute Time", text="Commute Time")
-    tree.heading("Disciplinary", text="Disciplinary Cases")
-    tree.heading("Homework", text="Homework Completion")
-    tree.heading("Income", text="Family Income")
-    tree.heading("Status", text="Promotion Status")
-    
-    for col in ("ID", "Satisfaction", "Attendance", "Failed Courses", "Commute Time", 
-                "Disciplinary", "Homework", "Income", "Status"):
-        tree.column(col, width=100)
-    
-    for row in rows:
-        tree.insert("", tk.END, values=row)
-    
-    tree.pack(fill=tk.BOTH, expand=True)
+# Filling missing numerical values with mean
+df.fillna(df.mean(numeric_only=True), inplace=True)
 
-# Function to delete data
-def delete_data():
+# Filling missing categorical values with mode
+for column in df.select_dtypes(include='object').columns:
+    df[column].fillna(df[column].mode()[0], inplace=True)
+
+# Encoding Categorical Variables
+encoder = LabelEncoder()
+for column in df.select_dtypes(include='object').columns:
+    df[column] = encoder.fit_transform(df[column])
+
+# Feature Scaling
+scaler = StandardScaler()
+numerical_columns = df.select_dtypes(include=np.number).columns.tolist()
+df[numerical_columns] = scaler.fit_transform(df[numerical_columns])
+
+# Splitting Data
+X = df.drop("dropout", axis=1)
+y = df["dropout"]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Model Training
+model = RandomForestClassifier()
+model.fit(X_train, y_train)
+
+# GUI using Tkinter
+def predict_dropout():
     try:
-        student_id = int(entry_delete_id.get())
-        cursor.execute('DELETE FROM students WHERE student_id = ?', (student_id,))
-        db_connection.commit()
+        inputs = [float(entry.get()) for entry in entries]
+        inputs = np.array(inputs).reshape(1, -1)
+        inputs = scaler.transform(inputs)
+        prediction = model.predict(inputs)[0]
+        result = "Likely to Dropout" if prediction == 1 else "Unlikely to Dropout"
+        messagebox.showinfo("Prediction", result)
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
 
-        if cursor.rowcount > 0:
-            messagebox.showinfo("Success", f"Student with ID {student_id} deleted successfully!")
-        else:
-            messagebox.showwarning("Warning", f"No student found with ID {student_id}.")
-    except ValueError:
-        messagebox.showerror("Error", "Invalid input! Please enter a valid Student ID.")
-
-# Main window
+# Create GUI
 root = tk.Tk()
-root.title("Database Viewer")
-root.geometry("400x300")
-root.configure(bg="#f0f8ff")
+root.title("Dropout Prediction")
 
-# View Data Button
-btn_view = tk.Button(root, text="View Data", font=("Helvetica", 14, "bold"), bg="#4682b4", fg="white", command=view_data)
-btn_view.pack(pady=20)
+labels = X.columns.tolist()
+entries = []
 
-# Delete Data Input and Button
-label_delete = tk.Label(root, text="Enter Student ID to Delete:", font=("Helvetica", 12), bg="#f0f8ff")
-label_delete.pack(pady=5)
+for idx, label in enumerate(labels):
+    lbl = ttk.Label(root, text=label)
+    lbl.grid(row=idx, column=0, padx=10, pady=5, sticky="w")
+    entry = ttk.Entry(root)
+    entry.grid(row=idx, column=1, padx=10, pady=5)
+    entries.append(entry)
 
-entry_delete_id = tk.Entry(root, font=("Helvetica", 12), width=20)
-entry_delete_id.pack(pady=5)
+btn = ttk.Button(root, text="Predict", command=predict_dropout)
+btn.grid(row=len(labels), column=0, columnspan=2, pady=20)
 
-btn_delete = tk.Button(root, text="Delete Record", font=("Helvetica", 14, "bold"), bg="#d9534f", fg="white", command=delete_data)
-btn_delete.pack(pady=10)
-
-# Footer
-footer = tk.Label(root, text="Managed By The Whiskers", font=("Helvetica", 10, "italic"), bg="#f0f8ff", fg="#4682b4")
-footer.pack(pady=20)
-
-# interface
 root.mainloop()
